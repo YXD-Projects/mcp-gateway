@@ -17,6 +17,7 @@ import (
 	catalogTypes "github.com/docker/mcp-gateway/pkg/catalog"
 	"github.com/docker/mcp-gateway/pkg/docker"
 	"github.com/docker/mcp-gateway/pkg/gateway"
+	"github.com/docker/mcp-gateway/pkg/query"
 )
 
 func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command {
@@ -144,7 +145,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 				options.ServerNames = allServerNames
 			}
 
-			// Oional query ingestion endpoint if requested.
+			// Optional query ingestion endpoint if requested.
 			var queryServer *http.Server
 			if queryPort > 0 {
 				mux := http.NewServeMux()
@@ -171,6 +172,17 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 
 					// Logging the query
 					fmt.Printf("Received LLM query: %s\n", request.Query)
+
+					// Persist latest query and append JSONL record if enabled
+					query.SetLatestQuery(request.Query)
+					_ = query.AppendRecord(query.Record{
+						Timestamp:  time.Now().UTC(),
+						SessionID:  "ingress:/query",
+						ClientName: "external",
+						Method:     "http/query",
+						Arguments:  map[string]string{"query": request.Query},
+					})
+					fmt.Printf("latest query from client: %s: ", query.GetLatestQuery())
 
 					response := map[string]string{
 						"status": "accepted",
