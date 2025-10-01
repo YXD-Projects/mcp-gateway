@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
@@ -29,6 +33,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 	var additionalToolsConfig []string
 	var mcpRegistryUrls []string
 	var enableAllServers bool
+	var queryPort int
 	if os.Getenv("DOCKER_MCP_IN_CONTAINER") == "1" {
 		// In-container.
 		options = gateway.Config{
@@ -139,6 +144,63 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 				options.ServerNames = allServerNames
 			}
 
+			// Start optional query ingestion endpoint if requested.
+			var queryServer *http.Server
+			if queryPort > 0 {
+				mux := http.NewServeMux()
+				mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+					defer r.Body.Close()
+
+					// Parse JSON request body
+					var request struct {
+						Query string `json:"query"`
+					}
+
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						http.Error(w, "Invalid JSON", http.StatusBadRequest)
+						return
+					}
+
+					if request.Query == "" {
+						http.Error(w, "Missing 'query' field", http.StatusBadRequest)
+						return
+					}
+
+					// TODO: Process the LLM query here (embeddings, filtering, etc.)
+					// For now, just log and acknowledge
+					fmt.Printf("Received LLM query: %s\n", request.Query)
+
+					response := map[string]string{
+						"status": "accepted",
+						"query":  request.Query,
+					}
+
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(response)
+				})
+
+				queryServer = &http.Server{
+					Addr:              fmt.Sprintf(":%d", queryPort),
+					Handler:           mux,
+					ReadHeaderTimeout: 5 * time.Second,
+				}
+
+				go func() {
+					_ = queryServer.ListenAndServe()
+				}()
+
+				go func() {
+					<-cmd.Context().Done()
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = queryServer.Shutdown(ctx)
+				}()
+			}
+
 			return gateway.NewGateway(options, docker).Run(cmd.Context())
 		},
 	}
@@ -172,6 +234,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 	runCmd.Flags().IntVar(&options.Cpus, "cpus", options.Cpus, "CPUs allocated to each MCP Server (default is 1)")
 	runCmd.Flags().StringVar(&options.Memory, "memory", options.Memory, "Memory allocated to each MCP Server (default is 2Gb)")
 	runCmd.Flags().BoolVar(&options.Static, "static", options.Static, "Enable static mode (aka pre-started servers)")
+	runCmd.Flags().IntVar(&queryPort, "query-port", queryPort, "Optional HTTP port to accept external POST /query requests")
 
 	// Very experimental features
 	runCmd.Flags().BoolVar(&options.Central, "central", options.Central, "In central mode, clients tell us which servers to enable")
