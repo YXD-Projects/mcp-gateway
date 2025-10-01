@@ -144,7 +144,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 				options.ServerNames = allServerNames
 			}
 
-			// Start optional query ingestion endpoint if requested.
+			// Oional query ingestion endpoint if requested.
 			var queryServer *http.Server
 			if queryPort > 0 {
 				mux := http.NewServeMux()
@@ -155,7 +155,6 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 					}
 					defer r.Body.Close()
 
-					// Parse JSON request body
 					var request struct {
 						Query string `json:"query"`
 					}
@@ -170,8 +169,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 						return
 					}
 
-					// TODO: Process the LLM query here (embeddings, filtering, etc.)
-					// For now, just log and acknowledge
+					// Logging the query
 					fmt.Printf("Received LLM query: %s\n", request.Query)
 
 					response := map[string]string{
