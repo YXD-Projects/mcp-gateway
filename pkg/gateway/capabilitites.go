@@ -47,7 +47,6 @@ func (g *Gateway) listCapabilities(ctx context.Context, configuration Configurat
 		lock            sync.Mutex
 		allCapabilities []Capabilities
 	)
-
 	errs, ctx := errgroup.WithContext(ctx)
 	errs.SetLimit(runtime.NumCPU())
 	for _, serverName := range serverNames {
@@ -68,7 +67,6 @@ func (g *Gateway) listCapabilities(ctx context.Context, configuration Configurat
 				defer g.clientPool.ReleaseClient(client)
 
 				var capabilities Capabilities
-
 				tools, err := client.Session().ListTools(ctx, &mcp.ListToolsParams{})
 				if err != nil {
 					logf("  > Can't list tools %s: %s", serverConfig.Name, err)

@@ -18,7 +18,7 @@ func TestCallbacksWithOAuthInterceptorEnabled(t *testing.T) {
 	defer func() { getGitHubOAuthURL = oldGetOAuthURL }()
 
 	// When oauth-interceptor is enabled
-	middlewares := Callbacks(false, false, true, nil)
+	middlewares := Callbacks(false, false, true, nil, 8000)
 
 	// Should have telemetry middleware + GitHub interceptor
 	assert.Len(t, middlewares, 2, "should have telemetry and GitHub interceptor when enabled")
@@ -49,7 +49,7 @@ func TestCallbacksWithOAuthInterceptorEnabled(t *testing.T) {
 
 func TestCallbacksWithOAuthInterceptorDisabled(t *testing.T) {
 	// When oauth-interceptor is disabled
-	middlewares := Callbacks(false, false, false, nil)
+	middlewares := Callbacks(false, false, false, nil, 8000)
 
 	// Should only have telemetry middleware, no GitHub interceptor
 	assert.Len(t, middlewares, 1, "should only have telemetry middleware when oauth disabled")
@@ -80,7 +80,7 @@ func TestCallbacksEndToEndWithFeatureToggle(t *testing.T) {
 
 		mockHandler := createMockHandler()
 
-		middlewares := Callbacks(false, false, true, nil) // OAuth enabled
+		middlewares := Callbacks(false, false, true, nil, 8000) // OAuth enabled
 		require.NotEmpty(t, middlewares)
 
 		wrappedHandler := middlewares[1](mockHandler)
@@ -100,7 +100,7 @@ func TestCallbacksEndToEndWithFeatureToggle(t *testing.T) {
 	t.Run("with feature disabled - should pass through", func(t *testing.T) {
 		mockHandler := createMockHandler()
 
-		middlewares := Callbacks(false, false, false, nil) // OAuth disabled
+		middlewares := Callbacks(false, false, false, nil, 8000) // OAuth disabled
 
 		// No middleware means the handler runs unchanged
 		if len(middlewares) == 0 {
@@ -135,7 +135,7 @@ func TestOAuthInterceptorIntegration(t *testing.T) {
 		}
 
 		// Get middlewares with OAuth enabled
-		middlewares := Callbacks(true, true, true, nil) // logCalls, blockSecrets, oauthEnabled
+		middlewares := Callbacks(true, true, true, nil, 8000) // logCalls, blockSecrets, oauthEnabled
 
 		// Apply all middlewares
 		handler := baseHandler
@@ -168,7 +168,7 @@ func TestOAuthInterceptorIntegration(t *testing.T) {
 		}
 
 		// Get middlewares with OAuth disabled
-		middlewares := Callbacks(true, true, false, nil) // logCalls, blockSecrets, oauthDisabled
+		middlewares := Callbacks(true, true, false, nil, 8000) // logCalls, blockSecrets, oauthDisabled
 
 		// Apply all middlewares (OAuth interceptor won't be in the chain)
 		handler := baseHandler
@@ -196,10 +196,10 @@ func TestCallbacksOAuthInterceptorWithOtherMiddleware(t *testing.T) {
 	// Test that OAuth interceptor plays nicely with other middleware
 
 	// With OAuth enabled and logCalls enabled
-	middlewares := Callbacks(true, false, true, nil)
+	middlewares := Callbacks(true, false, true, nil, 8000)
 	assert.Len(t, middlewares, 3, "should have telemetry, GitHub interceptor, and log calls middleware")
 
 	// With OAuth disabled but logCalls enabled
-	middlewares = Callbacks(true, false, false, nil)
+	middlewares = Callbacks(true, false, false, nil, 8000)
 	assert.Len(t, middlewares, 2, "should have telemetry and log calls middleware")
 }

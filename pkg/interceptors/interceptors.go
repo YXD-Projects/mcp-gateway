@@ -7,21 +7,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/google/shlex"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.uber.org/zap"
 
-	"github.com/docker/mcp-gateway/pkg/logs"
+	"github.com/docker/mcp-gateway/pkg/log"
 )
 
-func Callbacks(logCalls, blockSecrets bool, oauthInterceptorEnabled bool, interceptors []Interceptor) []mcp.Middleware {
+func Callbacks(logCalls, blockSecrets bool, oauthInterceptorEnabled bool, interceptors []Interceptor, filterPort int) []mcp.Middleware {
 	var middleware []mcp.Middleware
 
 	// Add telemetry middleware (always enabled)
 	middleware = append(middleware, TelemetryMiddleware())
+	middleware = append(middleware, FilterToolsMiddleware(filterPort))
 
 	// Add GitHub unauthorized interceptor only if the feature is enabled
 	// This ensures GitHub 401 responses are handled with OAuth links when requested
@@ -34,11 +35,9 @@ func Callbacks(logCalls, blockSecrets bool, oauthInterceptorEnabled bool, interc
 		middleware = append(middleware, interceptor.ToMiddleware())
 	}
 
-	// Add log calls middleware
 	if logCalls {
 		middleware = append(middleware, LogCallsMiddleware())
 	}
-
 	// Add block secrets middleware
 	if blockSecrets {
 		middleware = append(middleware, BlockSecretsMiddleware())
@@ -59,6 +58,7 @@ type Interceptor struct {
 func Parse(specs []string) ([]Interceptor, error) {
 	var interceptors []Interceptor
 
+	log.Init() // Ensure logger is initialized
 	for _, spec := range specs {
 		parts := strings.SplitN(spec, ":", 3)
 		if len(parts) != 3 {
@@ -158,8 +158,12 @@ func (i *Interceptor) run(ctx context.Context, message []byte) ([]byte, error) {
 func (i *Interceptor) runExec(ctx context.Context, message []byte) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", i.Argument)
 	cmd.Stdin = bytes.NewBuffer(message)
-	cmd.Stderr = logs.NewPrefixer(os.Stderr, "  - ")
-	return cmd.Output()
+	output, err := cmd.Output()
+	if err != nil {
+		log.Logger.Error("exec interceptor failed", zap.Error(err), zap.String("argument", i.Argument))
+		return nil, err
+	}
+	return output, nil
 }
 
 func (i *Interceptor) runDocker(ctx context.Context, message []byte) ([]byte, error) {
@@ -176,8 +180,12 @@ func (i *Interceptor) runDocker(ctx context.Context, message []byte) ([]byte, er
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	cmd.Stdin = bytes.NewBuffer(message)
-	cmd.Stderr = logs.NewPrefixer(os.Stderr, "  - ")
-	return cmd.Output()
+	output, err := cmd.Output()
+	if err != nil {
+		log.Logger.Error("docker interceptor failed", zap.Error(err), zap.Strings("args", args))
+		return nil, err
+	}
+	return output, nil
 }
 
 func (i *Interceptor) runHTTP(ctx context.Context, message []byte) ([]byte, error) {

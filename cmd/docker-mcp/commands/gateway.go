@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/docker/cli/cli/command"
 	"github.com/spf13/cobra"
@@ -13,6 +17,7 @@ import (
 	catalogTypes "github.com/docker/mcp-gateway/pkg/catalog"
 	"github.com/docker/mcp-gateway/pkg/docker"
 	"github.com/docker/mcp-gateway/pkg/gateway"
+	"github.com/docker/mcp-gateway/pkg/query"
 )
 
 func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command {
@@ -139,6 +144,67 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 				options.ServerNames = allServerNames
 			}
 
+			// Optional query ingestion endpoint if requested.
+			var queryServer *http.Server
+			if options.QueryPort > 0 && options.Filtering {
+				if options.FilterPort == 0 {
+					return fmt.Errorf("--filtering requires --filter-port (e.g., 8000)")
+				}
+				mux := http.NewServeMux()
+				mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+					defer r.Body.Close()
+
+					var request struct {
+						Query string `json:"query"`
+					}
+
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						http.Error(w, "Invalid JSON", http.StatusBadRequest)
+						return
+					}
+
+					if request.Query == "" {
+						http.Error(w, "Missing 'query' field", http.StatusBadRequest)
+						return
+					}
+
+					// Persist latest query and append JSONL record if enabled
+					query.SetLatestQuery(request.Query)
+
+					latest := query.GetLatestQuery()
+					logf("Stored latest query:", latest)
+
+					response := map[string]string{
+						"status": "accepted",
+						"query":  request.Query,
+					}
+
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(response)
+				})
+
+				queryServer = &http.Server{
+					Addr:              fmt.Sprintf(":%d", options.QueryPort),
+					Handler:           mux,
+					ReadHeaderTimeout: 5 * time.Second,
+				}
+
+				go func() {
+					_ = queryServer.ListenAndServe()
+				}()
+
+				go func() {
+					<-cmd.Context().Done()
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					_ = queryServer.Shutdown(ctx)
+				}()
+			}
+
 			return gateway.NewGateway(options, docker).Run(cmd.Context())
 		},
 	}
@@ -172,7 +238,9 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 	runCmd.Flags().IntVar(&options.Cpus, "cpus", options.Cpus, "CPUs allocated to each MCP Server (default is 1)")
 	runCmd.Flags().StringVar(&options.Memory, "memory", options.Memory, "Memory allocated to each MCP Server (default is 2Gb)")
 	runCmd.Flags().BoolVar(&options.Static, "static", options.Static, "Enable static mode (aka pre-started servers)")
-
+	runCmd.Flags().IntVar(&options.QueryPort, "query-port", 0, "Optional HTTP port to accept external POST /query requests")
+	runCmd.Flags().BoolVar(&options.Filtering, "filtering", false, "Optional filtering mode")
+	runCmd.Flags().IntVar(&options.FilterPort, "filter-port", 0, "Filter service HTTP Port (e.g., 8000")
 	// Very experimental features
 	runCmd.Flags().BoolVar(&options.Central, "central", options.Central, "In central mode, clients tell us which servers to enable")
 	_ = runCmd.Flags().MarkHidden("central")
