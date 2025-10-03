@@ -1,11 +1,22 @@
 package commands
 
 import (
+	"fmt"
+	"os"
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/docker/mcp-gateway/cmd/docker-mcp/tools"
 	"github.com/docker/mcp-gateway/pkg/docker"
 )
+
+func logf(format string, a ...any) {
+	if !strings.HasSuffix(format, "\n") {
+		format += "\n"
+	}
+	_, _ = fmt.Fprintf(os.Stderr, format, a...)
+}
 
 func toolsCommand(docker docker.Client) *cobra.Command {
 	cmd := &cobra.Command{
@@ -30,6 +41,7 @@ func toolsCommand(docker docker.Client) *cobra.Command {
 		Short:   "List tools",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			fmt.Printf("hello hererekqejfklqdjfklqsdfqsdfqds")
 			return tools.List(cmd.Context(), version, gatewayArgs, verbose, "list", "", format)
 		},
 	})

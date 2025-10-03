@@ -35,7 +35,6 @@ func List(ctx context.Context, version string, gatewayArgs []string, debug bool,
 		metric.WithAttributes(
 			attribute.String("mcp.cli.command", "tools."+show),
 		))
-
 	switch show {
 	case "list":
 		if format == "json" {

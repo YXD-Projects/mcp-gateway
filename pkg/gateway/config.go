@@ -35,4 +35,7 @@ type Options struct {
 	OAuthInterceptorEnabled bool
 	McpOAuthDcrEnabled      bool
 	DynamicTools            bool
+	QueryPort               int
+	Filtering               bool
+	FilterPort              int
 }

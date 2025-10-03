@@ -34,7 +34,6 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 	var additionalToolsConfig []string
 	var mcpRegistryUrls []string
 	var enableAllServers bool
-	var queryPort int
 	if os.Getenv("DOCKER_MCP_IN_CONTAINER") == "1" {
 		// In-container.
 		options = gateway.Config{
@@ -147,7 +146,10 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 
 			// Optional query ingestion endpoint if requested.
 			var queryServer *http.Server
-			if queryPort > 0 {
+			if options.QueryPort > 0 && options.Filtering {
+				if options.FilterPort == 0 {
+					return fmt.Errorf("--filtering requires --filter-port (e.g., 8000)")
+				}
 				mux := http.NewServeMux()
 				mux.HandleFunc("/query", func(w http.ResponseWriter, r *http.Request) {
 					if r.Method != http.MethodPost {
@@ -170,19 +172,11 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 						return
 					}
 
-					// Logging the query
-					fmt.Printf("Received LLM query: %s\n", request.Query)
-
 					// Persist latest query and append JSONL record if enabled
 					query.SetLatestQuery(request.Query)
-					_ = query.AppendRecord(query.Record{
-						Timestamp:  time.Now().UTC(),
-						SessionID:  "ingress:/query",
-						ClientName: "external",
-						Method:     "http/query",
-						Arguments:  map[string]string{"query": request.Query},
-					})
-					fmt.Printf("latest query from client: %s: ", query.GetLatestQuery())
+
+					latest := query.GetLatestQuery()
+					logf("Stored latest query:", latest)
 
 					response := map[string]string{
 						"status": "accepted",
@@ -194,7 +188,7 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 				})
 
 				queryServer = &http.Server{
-					Addr:              fmt.Sprintf(":%d", queryPort),
+					Addr:              fmt.Sprintf(":%d", options.QueryPort),
 					Handler:           mux,
 					ReadHeaderTimeout: 5 * time.Second,
 				}
@@ -244,8 +238,9 @@ func gatewayCommand(docker docker.Client, dockerCli command.Cli) *cobra.Command 
 	runCmd.Flags().IntVar(&options.Cpus, "cpus", options.Cpus, "CPUs allocated to each MCP Server (default is 1)")
 	runCmd.Flags().StringVar(&options.Memory, "memory", options.Memory, "Memory allocated to each MCP Server (default is 2Gb)")
 	runCmd.Flags().BoolVar(&options.Static, "static", options.Static, "Enable static mode (aka pre-started servers)")
-	runCmd.Flags().IntVar(&queryPort, "query-port", queryPort, "Optional HTTP port to accept external POST /query requests")
-
+	runCmd.Flags().IntVar(&options.QueryPort, "query-port", 0, "Optional HTTP port to accept external POST /query requests")
+	runCmd.Flags().BoolVar(&options.Filtering, "filtering", false, "Optional filtering mode")
+	runCmd.Flags().IntVar(&options.FilterPort, "filter-port", 0, "Filter service HTTP Port (e.g., 8000")
 	// Very experimental features
 	runCmd.Flags().BoolVar(&options.Central, "central", options.Central, "In central mode, clients tell us which servers to enable")
 	_ = runCmd.Flags().MarkHidden("central")
